@@ -1,0 +1,10 @@
+{
+	"id": "rnote-viewer-v2",
+	"name": "Rnote Viewer V2",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "View .rnote files in Obsidian.",
+	"author": "Antigravity",
+	"authorUrl": "https://github.com/obsidianmd/obsidian-sample-plugin",
+	"isDesktopOnly": false
+}

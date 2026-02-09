@@ -20,7 +20,21 @@ export interface Component {
         brushstroke?: BrushStroke;
         shapestroke?: ShapeStroke;
         textstroke?: TextStroke;
+        bitmapimage?: BitmapImage; // <--- The correct key
     } | null;
+}
+
+export interface BitmapImage {
+    image: {
+        data: string; // It is a Base64 STRING, not an array
+        pixel_width: number;
+        pixel_height: number;
+        memory_format: string; // e.g. "R8g8b8a8Premultiplied"
+    };
+    rectangle: {
+        cuboid: { half_extents: Point };
+        transform: MatrixWrapper; // Position on page
+    };
 }
 
 // TYPE A: HANDWRITING
@@ -119,6 +133,10 @@ export class RnoteView extends TextFileView {
         // Not used
     }
 
+    clear(): void {
+        this.contentEl.empty();
+    }
+
     async renderRnote(buffer: ArrayBuffer) {
         const container = this.contentEl;
         container.empty();
@@ -178,6 +196,47 @@ export class RnoteView extends TextFileView {
                 if (!s) return null;
                 if (s.shape) return getInnerShape(s.shape);
                 return s;
+            }
+
+            // Buffer to Base64 Helper (Kept for legacy/fallback if needed)
+            function arrayBufferToBase64(buffer: number[]) {
+                let binary = '';
+                const bytes = new Uint8Array(buffer);
+                const len = bytes.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            }
+
+            // Raw Pixels to PNG Converter
+            function convertRawToPng(base64Raw: string, width: number, height: number): string {
+                try {
+                    // 1. Decode Base64 String to Raw Bytes
+                    const binaryString = window.atob(base64Raw);
+                    const len = binaryString.length;
+                    const bytes = new Uint8ClampedArray(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // 2. Draw to Invisible Canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return "";
+
+                    // 3. Put Image Data (R8 G8 B8 A8)
+                    const imgData = new ImageData(bytes, width, height);
+                    ctx.putImageData(imgData, 0, 0);
+
+                    // 4. Export as PNG Data URL
+                    return canvas.toDataURL();
+                } catch (e) {
+                    console.error("Failed to convert raw image", e);
+                    return "";
+                }
             }
 
             // Variable Width Path Helper
@@ -401,6 +460,46 @@ export class RnoteView extends TextFileView {
                         updateBounds(tx + (content.length * size * 0.6), ty + size);
                     }
                     svg.appendChild(text);
+                }
+
+                // TYPE: COMPONENT (Bitmap/Image)
+                else if (component.value.bitmapimage) {
+                    const bmp = component.value.bitmapimage;
+                    const rawImg = bmp.image;
+                    const rect = bmp.rectangle;
+
+                    // 1. Convert Raw Data to Displayable PNG
+                    const pngUrl = convertRawToPng(rawImg.data, rawImg.pixel_width, rawImg.pixel_height);
+
+                    if (pngUrl) {
+                        const imgEl = document.createElementNS("http://www.w3.org/2000/svg", "image");
+                        imgEl.setAttribute("href", pngUrl);
+
+                        // 2. Set Dimensions based on Physical Size (Half-Extents)
+                        // Note: Raw pixel size != Physical page size. We use the rectangle bounds.
+                        const halfW = rect.cuboid.half_extents[0];
+                        const halfH = rect.cuboid.half_extents[1];
+
+                        imgEl.setAttribute("x", String(-halfW));
+                        imgEl.setAttribute("y", String(-halfH));
+                        imgEl.setAttribute("width", String(halfW * 2));
+                        imgEl.setAttribute("height", String(halfH * 2));
+
+                        // 3. Apply Transform (Matrix)
+                        if (rect.transform) {
+                            imgEl.setAttribute("transform", getSvgTransformUser(rect.transform.affine));
+
+                            // Bounds Tracking
+                            const matrix = rect.transform.affine;
+                            const tx = matrix[6];
+                            const ty = matrix[7];
+                            // Approximate bounds expansion
+                            updateBounds(tx - halfW, ty - halfH);
+                            updateBounds(tx + halfW, ty + halfH);
+                        }
+
+                        svg.appendChild(imgEl);
+                    }
                 }
             }
 

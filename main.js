@@ -4215,6 +4215,9 @@ var RnoteView = class extends import_obsidian.TextFileView {
   }
   setViewData(data, clear) {
   }
+  clear() {
+    this.contentEl.empty();
+  }
   async renderRnote(buffer) {
     var _a, _b, _c, _d, _e;
     const container = this.contentEl;
@@ -4255,6 +4258,35 @@ var RnoteView = class extends import_obsidian.TextFileView {
         if (s.shape)
           return getInnerShape(s.shape);
         return s;
+      }, arrayBufferToBase64 = function(buffer2) {
+        let binary = "";
+        const bytes = new Uint8Array(buffer2);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+      }, convertRawToPng = function(base64Raw, width, height) {
+        try {
+          const binaryString = window.atob(base64Raw);
+          const len = binaryString.length;
+          const bytes = new Uint8ClampedArray(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx)
+            return "";
+          const imgData = new ImageData(bytes, width, height);
+          ctx.putImageData(imgData, 0, 0);
+          return canvas.toDataURL();
+        } catch (e) {
+          console.error("Failed to convert raw image", e);
+          return "";
+        }
       }, getVariableWidthPath = function(points, pressures, baseWidth) {
         if (points.length < 2)
           return "";
@@ -4431,6 +4463,30 @@ var RnoteView = class extends import_obsidian.TextFileView {
             updateBounds(tx + content.length * size * 0.6, ty + size);
           }
           svg.appendChild(text);
+        } else if (component.value.bitmapimage) {
+          const bmp = component.value.bitmapimage;
+          const rawImg = bmp.image;
+          const rect = bmp.rectangle;
+          const pngUrl = convertRawToPng(rawImg.data, rawImg.pixel_width, rawImg.pixel_height);
+          if (pngUrl) {
+            const imgEl = document.createElementNS("http://www.w3.org/2000/svg", "image");
+            imgEl.setAttribute("href", pngUrl);
+            const halfW = rect.cuboid.half_extents[0];
+            const halfH = rect.cuboid.half_extents[1];
+            imgEl.setAttribute("x", String(-halfW));
+            imgEl.setAttribute("y", String(-halfH));
+            imgEl.setAttribute("width", String(halfW * 2));
+            imgEl.setAttribute("height", String(halfH * 2));
+            if (rect.transform) {
+              imgEl.setAttribute("transform", getSvgTransformUser(rect.transform.affine));
+              const matrix = rect.transform.affine;
+              const tx = matrix[6];
+              const ty = matrix[7];
+              updateBounds(tx - halfW, ty - halfH);
+              updateBounds(tx + halfW, ty + halfH);
+            }
+            svg.appendChild(imgEl);
+          }
         }
       }
       const padding = 50;
